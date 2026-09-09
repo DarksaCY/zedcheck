@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZED M — диагностика</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e;
+    --ok:#3fb950; --warn:#d29922; --err:#f85149; --accent:#58a6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex;
+           align-items:baseline; gap:14px; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; letter-spacing:.02em; }
+  .sub { color:var(--dim); font-size:12px; }
+  .wrap { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:16px; padding:16px; }
+  @media (max-width:1100px){ .wrap{ grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em;
+              color:var(--dim); margin:0 0 10px; font-weight:600; }
+  .banner { border-radius:8px; padding:12px 14px; margin:0 16px; border:1px solid; }
+  .banner.ok   { background:#0d2a14; border-color:var(--ok);   color:#7ee787; }
+  .banner.warn { background:#2b2005; border-color:var(--warn); color:#e3b341; }
+  .banner.err  { background:#2d0f0f; border-color:var(--err);  color:#ff9492; }
+  .banner b { display:block; font-size:15px; margin-bottom:4px; }
+  .banner .hint { color:var(--fg); opacity:.8; margin-top:8px; font-size:13px; }
+  label { display:block; color:var(--dim); font-size:11px; text-transform:uppercase;
+          letter-spacing:.06em; margin-bottom:4px; }
+  select, button, input { background:#0d1117; color:var(--fg); border:1px solid var(--line);
+                          border-radius:6px; padding:6px 9px; font:inherit; font-size:13px; }
+  button { cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+  button.primary:hover { background:#388bfd; color:#fff; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .view { background:#000; border:1px solid var(--line); border-radius:8px; overflow:hidden;
+          min-height:220px; display:flex; align-items:center; justify-content:center; }
+  .view img { max-width:100%; display:block; }
+  .view .empty { color:var(--dim); padding:60px 20px; text-align:center; font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; text-transform:uppercase; font-size:10px; letter-spacing:.06em; }
+  tr:last-child td { border-bottom:none; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:3px 14px; font-size:13px; }
+  .kv dt { color:var(--dim); }
+  .kv dd { margin:0; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px; border:1px solid; }
+  .tag.ok   { color:var(--ok);   border-color:var(--ok);   background:#0d2a14; }
+  .tag.err  { color:var(--err);  border-color:var(--err);  background:#2d0f0f; }
+  .tag.warn { color:var(--warn); border-color:var(--warn); background:#2b2005; }
+  .tag.dim  { color:var(--dim);  border-color:var(--line); }
+  .mono-sm { font-size:11px; color:var(--dim); }
+  .scroll { max-height:340px; overflow:auto; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:3px 0; }
+  .row span:first-child { color:var(--dim); }
+  .big { font-size:22px; font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ZED M — диагностика камеры</h1>
+  <span class="sub" id="hdr">загрузка…</span>
+  <span class="sub" style="margin-left:auto" id="clock"></span>
+</header>
+
+<div id="banner" class="banner warn"><b>Проверяю…</b></div>
+
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <h2>Живое изображение</h2>
+      <div class="controls" style="margin-bottom:12px">
+        <div><label>Устройство</label><select id="dev"></select></div>
+        <div><label>Разрешение</label><select id="res"></select></div>
+        <div><label>Формат</label>
+          <select id="fourcc">
+            <option value="">авто</option>
+            <option value="YUYV">YUYV</option>
+            <option value="MJPG">MJPG</option>
+          </select></div>
+        <div><label>Ракурс</label>
+          <select id="eye">
+            <option value="both">оба (SBS)</option>
+            <option value="left">левый</option>
+            <option value="right">правый</option>
+            <option value="anaglyph">анаглиф</option>
+            <option value="diff">разница L−R</option>
+          </select></div>
+        <button class="primary" id="start">Старт</button>
+        <button id="stop">Стоп</button>
+        <button id="snap">Снимок</button>
+      </div>
+      <div class="view" id="view"><div class="empty">Поток не запущен</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Телеметрия захвата</h2>
+      <div id="cap"><span class="mono-sm">камера не открыта</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>Перебор режимов ZED</h2>
+      <div class="controls" style="margin-bottom:10px">
+        <button id="scan">Прогнать все режимы</button>
+        <span class="mono-sm" id="scanmsg"></span>
+      </div>
+      <div id="scanres"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Устройства Stereolabs на USB</h2>
+      <div id="zeddev"></div>
+    </div>
+    <div class="panel">
+      <h2>Шины USB хоста</h2>
+      <div id="buses"></div>
+    </div>
+    <div class="panel">
+      <h2>V4L2: узлы и режимы</h2>
+      <div class="scroll" id="v4l2"></div>
+    </div>
+    <div class="panel">
+      <h2>Все устройства USB</h2>
+      <div class="scroll" id="usb"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let DIAG = null, streaming = false;
+
+const esc = s => String(s ?? '—').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function speedTag(mbps) {
+  const v = parseInt(mbps || 0, 10);
+  if (!v) return '<span class="tag dim">?</span>';
+  const cls = v >= 5000 ? 'ok' : (v >= 480 ? 'warn' : 'dim');
+  const name = v >= 10000 ? 'USB 3.1 SS+' : v >= 5000 ? 'USB 3.0 SS' : v >= 480 ? 'USB 2.0 HS' : v >= 12 ? 'USB 1.1 FS' : 'LS';
+  return `<span class="tag ${cls}">${v} Mb/s · ${name}</span>`;
+}
+
+function renderBanner(z) {
+  const b = $('#banner');
+  const map = { ok:'ok', partial:'warn', usb2:'err', absent:'err', unknown:'warn' };
+  const title = {
+    ok: 'Камера видна полностью',
+    partial: 'Видеоинтерфейс есть, но узла /dev/video* нет',
+    usb2: 'Видеоинтерфейс камеры не энумерирован',
+    absent: 'Камера не найдена',
+    unknown: 'Неопознанное состояние',
+  };
+  b.className = 'banner ' + (map[z.state] || 'warn');
+  let hint = '';
+  if (z.state === 'usb2') {
+    const free = z.free_superspeed_buses || [];
+    hint = `<div class="hint">Сейчас камера сидит на шине со скоростью
+      ${z.current_bus_speed_mbps || '?'} Mb/s. ${free.length
+        ? 'Переткните кабель в порт USB 3.0 (синий, с меткой SS) — на этом хосте SuperSpeed-шины: ' + free.join(', ') + '.'
+        : 'SuperSpeed-шин на хосте не обнаружено.'}
+      Также проверьте, что кабель/хаб/удлинитель поддерживают USB 3.0 — USB 2.0-удлинитель даёт ровно такую же картину.</div>`;
+  }
+  b.innerHTML = `<b>${title[z.state] || z.state}</b>${esc(z.verdict)}${hint}`;
+}
+
+function renderZedDev(z) {
+  if (!z.devices.length) { $('#zeddev').innerHTML = '<span class="mono-sm">ничего не найдено</span>'; return; }
+  $('#zeddev').innerHTML = `<table><tr><th>VID:PID</th><th>Модель</th><th>Интерфейс</th><th>Шина</th><th>Скорость</th><th>Питание</th></tr>` +
+    z.devices.map(d => `<tr>
+      <td>${d.vid}:${d.pid}</td><td>${esc(d.model)}</td>
+      <td><span class="tag ${d.interface === 'video' ? 'ok' : 'dim'}">${d.interface}</span></td>
+      <td>${esc(d.busnum)}/${esc(d.devnum)}</td><td>${speedTag(d.speed_mbps)}</td><td>${esc(d.maxpower)}</td>
+    </tr>`).join('') + `</table>` +
+    (z.video_interfaces.length ? '' :
+      `<p class="mono-sm" style="margin:10px 0 0">Ожидался парный видеоинтерфейс <b>2b03:f680</b> (ZED-M UVC). Его нет.</p>`);
+}
+
+function renderBuses(z) {
+  $('#buses').innerHTML = `<table><tr><th>Шина</th><th>Скорость</th><th>Корневой хаб</th></tr>` +
+    z.buses.map(b => `<tr><td>${esc(b.busnum)}</td><td>${speedTag(b.speed_mbps)}</td><td class="mono-sm">${esc(b.product)}</td></tr>`).join('') +
+    `</table>`;
+}
+
+function renderV4l2(list) {
+  $('#v4l2').innerHTML = list.map(d => {
+    const u = d.usb || {};
+    const isZed = u.vid === '2b03';
+    const fmts = (d.formats || []).map(f => {
+      const sizes = (f.sizes || []).map(s => s.stepwise
+        ? `${s.stepwise.min_width}×${s.stepwise.min_height}…${s.stepwise.max_width}×${s.stepwise.max_height}`
+        : `${s.width}×${s.height}${s.fps && s.fps.length ? '@' + s.fps.join('/') : ''}`).join(', ');
+      return `<tr><td>${esc(f.fourcc)}</td><td class="mono-sm">${esc(sizes) || '—'}</td></tr>`;
+    }).join('');
+    return `<div style="margin-bottom:14px">
+      <div><b>${esc(d.device)}</b> ${isZed ? '<span class="tag ok">ZED</span>' : '<span class="tag dim">не ZED</span>'}
+        ${d.is_capture ? '' : '<span class="tag warn">не capture</span>'}
+        ${d.readable ? '' : '<span class="tag err">нет доступа</span>'}</div>
+      <div class="mono-sm">${esc(d.card)} · ${esc(d.driver)} · ${esc(u.product)} (${esc(u.vid)}:${esc(u.pid)}) ${u.speed_mbps ? speedTag(u.speed_mbps) : ''}</div>
+      ${d.error ? `<div class="mono-sm" style="color:var(--err)">${esc(d.error)}</div>` : ''}
+      ${fmts ? `<table style="margin-top:6px"><tr><th>FourCC</th><th>Разрешения</th></tr>${fmts}</table>` : ''}
+    </div>`;
+  }).join('') || '<span class="mono-sm">нет узлов /dev/video*</span>';
+}
+
+function renderUsb(list) {
+  $('#usb').innerHTML = `<table><tr><th>VID:PID</th><th>Устройство</th><th>Скорость</th></tr>` +
+    list.filter(d => d.product && !/root hub/i.test(d.product)).map(d =>
+      `<tr><td>${d.vid}:${d.pid}</td><td>${esc(d.product)}<div class="mono-sm">${esc(d.manufacturer)}</div></td><td>${speedTag(d.speed_mbps)}</td></tr>`
+    ).join('') + `</table>`;
+}
+
+function renderDevices(diag) {
+  const sel = $('#dev'), prev = sel.value;
+  sel.innerHTML = diag.v4l2.filter(d => d.is_capture).map(d => {
+    const isZed = (d.usb || {}).vid === '2b03';
+    return `<option value="${d.device}">${d.device} — ${esc(d.card)}${isZed ? ' [ZED]' : ''}</option>`;
+  }).join('') || '<option value="">нет устройств</option>';
+  const zed = diag.v4l2.find(d => d.is_capture && (d.usb || {}).vid === '2b03');
+  sel.value = prev || (zed ? zed.device : sel.options[0]?.value) || '';
+  renderRes();
+}
+
+function renderRes() {
+  const sel = $('#res'), prev = sel.value;
+  const dev = $('#dev').value;
+  const d = (DIAG?.v4l2 || []).find(x => x.device === dev);
+  const native = new Set();
+  (d?.formats || []).forEach(f => (f.sizes || []).forEach(s => {
+    if (s.width) native.add(`${s.width}x${s.height}`);
+  }));
+  const zedOpts = (DIAG?.zed_modes || []).map(m =>
+    `<option value="${m.width}x${m.height}">ZED ${m.name} — ${m.width}×${m.height} (${m.width / 2}×${m.height} на глаз)</option>`);
+  const natOpts = [...native].map(r => `<option value="${r}">узел: ${r.replace('x', '×')}</option>`);
+  sel.innerHTML = `<option value="">по умолчанию</option>` + zedOpts.join('') + natOpts.join('');
+  sel.value = prev;
+}
+
+function q() {
+  const [w, h] = ($('#res').value || 'x').split('x');
+  const p = new URLSearchParams({ device: $('#dev').value, eye: $('#eye').value, fourcc: $('#fourcc').value });
+  if (w && h) { p.set('width', w); p.set('height', h); }
+  return p;
+}
+
+$('#start').onclick = () => {
+  if (!$('#dev').value) return;
+  const p = q(); p.set('t', Date.now());
+  $('#view').innerHTML = `<img src="/stream?${p}">`;
+  streaming = true;
+};
+$('#stop').onclick = async () => {
+  streaming = false;
+  $('#view').innerHTML = '<div class="empty">Поток остановлен</div>';
+  await fetch('/api/close');
+};
+$('#snap').onclick = () => window.open('/snapshot?' + q(), '_blank');
+$('#dev').onchange = renderRes;
+
+$('#scan').onclick = async () => {
+  const btn = $('#scan'); btn.disabled = true;
+  $('#scanmsg').textContent = 'перебираю режимы, это займёт несколько секунд…';
+  $('#view').innerHTML = '<div class="empty">Поток остановлен на время перебора</div>';
+  streaming = false;
+  try {
+    const r = await fetch('/api/scan?device=' + encodeURIComponent($('#dev').value) +
+                          '&fourcc=' + encodeURIComponent($('#fourcc').value));
+    const j = await r.json();
+    $('#scanres').innerHTML = `<table><tr><th>Режим</th><th>Запрошено</th><th>Получено</th><th>Итог</th></tr>` +
+      j.results.map(x => `<tr>
+        <td>${esc(x.mode)}</td><td>${x.width}×${x.height}</td>
+        <td>${x.ok ? `${x.actual.width}×${x.actual.height} ${esc(x.actual.fourcc)}` : '—'}</td>
+        <td>${x.ok ? (x.exact ? '<span class="tag ok">точно</span>'
+                              : '<span class="tag warn">подменено драйвером</span>')
+                   : `<span class="tag err">ошибка</span><div class="mono-sm">${esc(x.error)}</div>`}</td>
+      </tr>`).join('') + `</table>`;
+    $('#scanmsg').textContent = 'готово';
+  } catch (e) {
+    $('#scanmsg').textContent = 'ошибка: ' + e;
+  }
+  btn.disabled = false;
+};
+
+function renderCap(c) {
+  if (!c.open) { $('#cap').innerHTML = '<span class="mono-sm">камера не открыта</span>'; return; }
+  const a = c.actual || {}, r = c.requested || {};
+  $('#cap').innerHTML = `
+    <div class="row"><span>измеренный FPS</span><span class="big" style="color:var(--ok)">${c.measured_fps}</span></div>
+    <div class="row"><span>FPS по драйверу</span><span>${a.fps}</span></div>
+    <div class="row"><span>кадр</span><span>${a.width}×${a.height} ${esc(a.fourcc)}</span></div>
+    <div class="row"><span>запрошено</span><span>${r.width ? r.width + '×' + r.height : 'по умолчанию'}
+      ${c.granted_as_requested ? '<span class="tag ok">выдано</span>' : '<span class="tag warn">подменено</span>'}</span></div>
+    <div class="row"><span>стерео SBS</span><span>${c.stereo ? '<span class="tag ok">да</span>' : '<span class="tag dim">нет</span>'}</span></div>
+    <div class="row"><span>кадров / ошибок</span><span>${c.frames} / ${c.errors}</span></div>
+    <div class="row"><span>время открытия</span><span>${c.open_time_ms} мс</span></div>
+    <div class="row"><span>аптайм потока</span><span>${c.uptime_s} с</span></div>
+    ${c.last_error ? `<div class="mono-sm" style="color:var(--err);margin-top:6px">${esc(c.last_error)}</div>` : ''}`;
+}
+
+async function refreshDiag() {
+  try {
+    const r = await fetch('/api/diag');
+    DIAG = await r.json();
+    renderBanner(DIAG.zed);
+    renderZedDev(DIAG.zed);
+    renderBuses(DIAG.zed);
+    renderV4l2(DIAG.v4l2);
+    renderUsb(DIAG.usb);
+    renderDevices(DIAG);
+    renderCap(DIAG.capture);
+    $('#hdr').textContent = `OpenCV ${DIAG.opencv} · узлов V4L2: ${DIAG.v4l2.length} · устройств USB: ${DIAG.usb.length}`;
+  } catch (e) { $('#hdr').textContent = 'сервер недоступен: ' + e; }
+}
+
+async function refreshStats() {
+  if (!streaming) return;
+  try { renderCap(await (await fetch('/api/stats')).json()); } catch (e) {}
+}
+
+setInterval(() => $('#clock').textContent = new Date().toLocaleTimeString('ru-RU'), 1000);
+setInterval(refreshDiag, 4000);
+setInterval(refreshStats, 1000);
+refreshDiag();
+</script>
+</body>
+</html>
